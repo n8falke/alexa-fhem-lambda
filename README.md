@@ -47,6 +47,25 @@ I use letsencrypt, so the ssl connection can be verified. In most cases you can 
 
 Add to the ```global``` device (you can ```list global``` and click global on third line in fhem web) to the attribute ```userattr```: ```EchoCap EchoCat EchoDesc EchoWord``` space separated.
 
+### switch
+Add the attributes to your switch (or dummy device):
+* EchoCap = power
+* EchoWord = printer
+* EchoDesc = power for printer
+Determined by EchoCap but can be changed (currently amazon ignores displayCategories [see API doc](https://developer.amazon.com/de/docs/device-apis/alexa-discovery.html#display-categories)):
+* EchoCat = SWITCH | LIGHT | SPEAKER 
+
+### light with rgb and brightness control
+Currently only some light devices are supported
+Add the attributes to your rgb device:
+* EchoCap = color power bri
+* EchoWord = reading light
+* EchoDesc = reading light in living room
+
+### LightScene
+* EchoCap = scene
+* EchoDesc = light scene in living room
+
 ### harmony
 Add the attributes to your harmony device:
 * EchoCap = harmony
