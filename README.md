@@ -109,3 +109,10 @@ Test connectivity with:
 
 ## create your alexa smart home skill
 You'll find good walkthrougs in the net how to set up a alexa smart home skill. You need to set up a auth with amazon before.
+
+## justPlay.js
+If you want to play a internet https-Stream you can creat a simple lambda function with justPlay.js and add the following env-vars:
+* URL = 'https://your-site/stream.mp3'
+* TOKEN = 'TokenForStream'
+* SAY = 'Name of Stream'
+Create a alexa custom skill and activate audio interface. On start or continue of skill the stream will be played with echo.
