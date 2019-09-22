@@ -38,7 +38,7 @@ function Request( event, callback )
 	this.respond = ( context ) =>
 	{
 		if ( this.event.directive.endpoint )
-			this._response.endpoint = { endpointId: this.event.directive.endpoint.endpointId }
+			this._response.endpoint = { endpointId: this.event.directive.endpoint.endpointId };
 		this.send( context );
 	};
 
@@ -67,15 +67,27 @@ function Request( event, callback )
 				( response ) =>
 				{
 					var str = '';
-					response.on( 'data', ( chunk ) => { str += chunk.toString('utf-8'); });
+					response.on( 'data',
+					             ( chunk ) => { str += chunk.toString('utf-8');
+					                          }
+					           );
 					response.on( 'end', () => 
 							{
 								console.log( "fhem: " + ( str || 'no answere' ) );
 								reqCallback( str ? JSON.parse( str ) : { } ); 
 							} );
-					response.on( 'error', ( e ) => { self.errorResponse( "BRIDGE_UNREACHABLE", "Kommunikationsfehler " + e ); } );
+					response.on( 'error',
+					             ( e ) => { self.errorResponse( "BRIDGE_UNREACHABLE",
+					                                            "Kommunikationsfehler " + e
+					                                          );
+					                      } );
 				}
-			).on( 'error', ( e ) => { self.errorResponse( "INTERNAL_ERROR", "HTTPS error " + e ); } ).end();
+			).on( 'error',
+			      ( e ) => { self.errorResponse( "INTERNAL_ERROR",
+			                                     "HTTPS error " + e
+			                                   );
+			      	       }
+			    ).end();
 	};
 }
 
@@ -89,7 +101,8 @@ var capCategoryMap =
 	window:  'SMARTLOCK',
 	power:   'SWITCH',
 	color:   'LIGHT',
-	bri:     'LIGHT'
+	bri:     'LIGHT',
+	volume:  'SPEAKER'
 };
 var capabilitiesMap =
 {
@@ -157,6 +170,18 @@ var capabilitiesMap =
 		properties:
 		{
 			supported: [ { name: "temperature" } ],
+			proactivelyReported: false,
+			retrievable: true
+		}
+	},
+	volume:
+	{
+		type: "AlexaInterface",
+		interface: "Alexa.Speaker",
+		version: "3",
+		properties:
+		{
+			supported: [ { name: "volume" }, { name: "muted" } ],
 			proactivelyReported: false,
 			retrievable: true
 		}
@@ -286,6 +311,29 @@ var stateReqMap =
 					} ); 
 		}
 	],
+	volume:
+	[
+		{ volume: true, mute: true },
+		( dev, res ) =>
+		{
+			let volume = dev.Readings.volume;
+			let mute   = dev.Readings.mute;
+			res.push(
+					{
+						namespace: "Alexa.Speaker",
+						name: "volume",
+						value: parseFloat( volume.Value ),
+						timeOfSample: new Date( Date.parse( volume.Time ) ),
+						uncertaintyInMilliseconds: 1000
+					}, {
+						namespace: "Alexa.Speaker",
+						name: "muted",
+						value: mute.Value == 'on',
+						timeOfSample: new Date( Date.parse( mute.Time ) ),
+						uncertaintyInMilliseconds: 1000
+					} );			
+		}
+	],
 	window:
 	[
 		{ state: true },
@@ -311,13 +359,15 @@ var stateReqMap =
 function handleDiscovery( request )
 {
 	if ( request.event.directive.header.name != 'Discover' )
-		return request.errorResponse( 'INVALID_DIRECTIVE', 'Only Discover in namespace Alexa.Discovery is supported' );
+		return request.errorResponse( 'INVALID_DIRECTIVE',
+		                              'Only Discover in namespace Alexa.Discovery is supported' );
 
 	request.fhemReq( 'jsonlist2 EchoWord=..* EchoWord EchoCap EchoDesc EchoCat',
 			( result ) =>
 			{
 				if ( !result || ! result.Results || !result.Results.length )
-					return request.errorResponse( "BRIDGE_UNREACHABLE", "Keine Antwort vom Server" );
+					return request.errorResponse( "BRIDGE_UNREACHABLE",
+					                              "Keine Antwort vom Server" );
 				let defRef = {};
 				let endpoints = request._response.payload.endpoints = [];
 				for ( let dev of result.Results )
@@ -379,11 +429,15 @@ function handleStateRequest( request, headerName, setCmd, patch )
 		
 		Object.assign( readings, todo[0] );
 	}
-	request.fhemReq( (setCmd||'') + 'jsonlist2 ' + Object.keys( askFor ).join( ',' ) + ' ' + Object.keys( readings ).join( ' ' ),
+	request.fhemReq( (setCmd||'')
+	                 + 'jsonlist2 '
+	                 + Object.keys( askFor ).join( ',' )
+	                 + ' ' + Object.keys( readings ).join( ' ' ),
 			( result ) =>
 			{
 				if ( !result || ! result.Results || !result.Results.length )
-					return request.errorResponse( "BRIDGE_UNREACHABLE", "Keine Antwort vom Server" );
+					return request.errorResponse( "BRIDGE_UNREACHABLE",
+					                              "Keine Antwort vom Server" );
 				let context = { properties: [] };
 				for ( let dev of result.Results )
 					if ( askFor[dev.Name] )
@@ -408,6 +462,54 @@ function setPowerState( request )
 	let target = request.event.directive.header.name == 'TurnOn' ? 'on' : 'off';
 	request._response.header.namespace = 'Alexa';
 	handleStateRequest( request, 'Response', 'set ' + dev + ' ' + target + ';' );
+}
+
+/**
+ * Alexa.Speaker::SetMute
+ */
+function setMute( request )
+{
+	let dev = request.event.directive.endpoint.cookie.volume;
+	if ( !dev )
+		throw ( 'no volume device in cookies' );
+	let target = request.event.directive.payload.mute ? 'on' : 'off';
+	request._response.header.namespace = 'Alexa';
+	handleStateRequest( request, 'Response',
+	                    'set ' + dev + ' mute ' + target + ';' );
+}
+
+/**
+ * Alexa.Speaker::SetVolume
+ */
+function setVolume( request )
+{
+	let dev = request.event.directive.endpoint.cookie.volume;
+	if ( !dev )
+		throw ( 'no volume device in cookies' );
+	let target = request.event.directive.payload.volume;
+	request._response.header.namespace = 'Alexa';
+	handleStateRequest( request, 'Response',
+	                    'set ' + dev + ' volume ' + target + ';' );
+}
+
+/**
+ * Alexa.Speaker::AdjustVolume
+ */
+function adjustVolume( request )
+{
+	let dev = request.event.directive.endpoint.cookie.volume;
+	if ( !dev )
+		throw ( 'no volume device in cookies' );
+	let target = request.event.directive.payload.volume;
+	// default (without specific delta) is 10 (which is way to much)
+	if ( request.event.directive.payload.volumeDefault )
+		target /= 5;
+	request._response.header.namespace = 'Alexa';
+	handleStateRequest( request, 'Response',
+	                    'set ' + dev
+	                      + ' volume {( ReadingsVal($DEV,"volume",0) + ' 
+	                      + target + ' )};' 
+	                  );
 }
 
 /**
@@ -467,7 +569,8 @@ function setTemperature( request )
 	let target = request.event.directive.payload.targetSetpoint;
 	request._response.header.namespace = 'Alexa';
 	if ( !target || target.scale != 'CELSIUS' )
-		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE", "Currently only ° celsius is supported" );
+		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE",
+		                              "Currently only ° celsius is supported" );
 	handleStateRequest( request, 
 						'Response',
 	                    'set ' + dev + ' desiredTemperature ' + target.value + ';',
@@ -491,10 +594,13 @@ function setDeltaTemperature( request )
 	let target = request.event.directive.payload.targetSetpointDelta;
 	request._response.header.namespace = 'Alexa';
 	if ( !target || target.scale != 'CELSIUS' )
-		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE", "Currently only ° celsius is supported" );
+		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE",
+		                              "Currently only ° celsius is supported" );
 	handleStateRequest( request, 
 						'Response',
-						'set ' + dev + " desiredTemperature {(ReadingsVal($DEV,'desiredTemperature','18')+ " + target.value + ')};',
+						'set ' + dev
+						  + " desiredTemperature {(ReadingsVal($DEV,'desiredTemperature','18')+ "
+						  + target.value + ')};',
 						( context ) => { for ( let prop of context.properties ) 
 	                                        if ( prop.name == 'targetSetpoint' )
 											{
@@ -529,9 +635,19 @@ function setHeaterMode( request )
 			setCmd += ' desiredTemperature manual eco;';
 			break;
 		default:
-			return request.errorResponse( "UNSUPPORTED_THERMOSTAT_MODE", "Only AUTO, ECO, HEAT and OFF supported" );
+			return request.errorResponse( "UNSUPPORTED_THERMOSTAT_MODE",
+			                              "Only AUTO, ECO, HEAT and OFF supported" );
 	}
-	request.fhemReq( setCmd, ( result ) => { setTimeout( () => { handleStateRequest( request, 'Response' ) }, 2000 ) } );
+	request.fhemReq( setCmd,
+	                 ( result ) =>
+	                 {
+	                 	setTimeout( () =>
+				                 	{
+				                 		handleStateRequest( request, 'Response' );
+				                 	},
+				                 	2000 );
+	                 	
+	                 } );
 }
 
 // --------------- Main handler -----------------------
@@ -549,7 +665,8 @@ exports.handler = ( event, context, callback ) => {
 			case 'Alexa':
 				if ( event.directive.header.name == 'ReportState' )
 					return handleStateRequest( request );
-				return request.errorResponse( 'INVALID_DIRECTIVE', 'ReportState expected' );
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'ReportState expected' );
 
 			case 'Alexa.PowerController':
 				return setPowerState( request );
@@ -557,12 +674,14 @@ exports.handler = ( event, context, callback ) => {
 			case 'Alexa.ColorController':
 				if ( event.directive.header.name == 'SetColor' )
 					return setColor( request );
-				return request.errorResponse( 'INVALID_DIRECTIVE', 'SetColor expected' );
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'SetColor expected' );
 
 			case 'Alexa.BrightnessController':
 				if ( event.directive.header.name == 'SetBrightness' )
 					return setBrightness( request );
-				return request.errorResponse( 'INVALID_DIRECTIVE', 'SetBrightness expected' );
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'SetBrightness expected' );
 
 			case 'Alexa.ThermostatController':
 				switch ( event.directive.header.name )
@@ -574,8 +693,22 @@ exports.handler = ( event, context, callback ) => {
 					case 'SetThermostatMode':
 						return setHeaterMode( request );
 				}
-				return request.errorResponse( 'INVALID_DIRECTIVE', 'unsupported in ThermostatController' );
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'unsupported in ThermostatController' );
 
+			case 'Alexa.Speaker':
+				switch ( event.directive.header.name )
+				{
+					case 'SetVolume':
+						return setVolume( request );
+					case 'AdjustVolume':
+						return adjustVolume( request );
+					case 'SetMute':
+						return setMute( request );
+				}
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'unsupported in ThermostatController' );
+				
 			case 'Alexa.LockController':
 				request._response.header.namespace = 'Alexa';
 				return handleStateRequest( request, 'Response' );
@@ -584,7 +717,6 @@ exports.handler = ( event, context, callback ) => {
 				return request.errorResponse( 'INVALID_DIRECTIVE', 
 				                              'Not supported: ' + event.directive.header.namespace 
 											  + '::' + event.directive.header.name );
-				break;
 		}
 	} catch (err)
 	{
