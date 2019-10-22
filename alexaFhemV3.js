@@ -12,7 +12,7 @@ function Request( event, callback )
 {
 	this.event = event;
 	this._callback = callback;
-	this._response = 
+	this._response =
 	{
 		header:
 		{
@@ -26,15 +26,15 @@ function Request( event, callback )
 	if ( event.directive.header.correlationToken )
 		this._response.header.correlationToken = event.directive.header.correlationToken;
 
-	this.send = ( context ) => 
-	{ 
+	this.send = ( context ) =>
+	{
 		console.log( this._response );
 		if ( context )
 			console.log( context );
-		this._callback( null, context ? { context, event: this._response } 
+		this._callback( null, context ? { context, event: this._response }
 		                              : { event: this._response } );
 	};
-	
+
 	this.respond = ( context ) =>
 	{
 		if ( this.event.directive.endpoint )
@@ -47,7 +47,7 @@ function Request( event, callback )
 		this._response.payload = { type, message };
 		this.respond();
 	};
-	
+
 	this.fhemReq = ( cmd, reqCallback ) =>
 	{
 		if ( !this._https )
@@ -55,7 +55,7 @@ function Request( event, callback )
 
 		var self = this;
 		console.log( "fhemReq: " + FHEM_BASE + cmd );
-		this._https.get( 
+		this._https.get(
 				{
 					hostname: FHEM_HOST,
 					port:     FHEM_PORT,
@@ -71,10 +71,10 @@ function Request( event, callback )
 					             ( chunk ) => { str += chunk.toString('utf-8');
 					                          }
 					           );
-					response.on( 'end', () => 
+					response.on( 'end', () =>
 							{
 								console.log( "fhem: " + ( str || 'no answere' ) );
-								reqCallback( str ? JSON.parse( str ) : { } ); 
+								reqCallback( str ? JSON.parse( str ) : { } );
 							} );
 					response.on( 'error',
 					             ( e ) => { self.errorResponse( "BRIDGE_UNREACHABLE",
@@ -229,7 +229,7 @@ var stateReqMap =
 	power:
 	[
 		{ STATE: true },
-		( dev, res ) => 
+		( dev, res ) =>
 		{
 			let reading = dev.Internals;
 			if ( !reading ) return;
@@ -240,13 +240,13 @@ var stateReqMap =
 						value: reading.STATE == "off" ? "OFF" : "ON",
 						timeOfSample: new Date(),
 						uncertaintyInMilliseconds: 1000
-					} ); 
-		}		
+					} );
+		}
 	],
 	color:
 	[
 		{ brightness: true, hue: true, saturation: true },
-		( dev, res ) => 
+		( dev, res ) =>
 		{
 			let readings = dev.Readings;
 			if ( !readings ) return;
@@ -269,7 +269,7 @@ var stateReqMap =
 	bri:
 	[
 		{ brightness: true },
-		( dev, res ) => 
+		( dev, res ) =>
 		{
 			let reading = dev.Readings.brightness;
 			if ( !reading ) return;
@@ -332,7 +332,7 @@ var stateReqMap =
 						value: { value: parseFloat(reading.Value), scale: "CELSIUS" },
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
 						uncertaintyInMilliseconds: 1000
-					} ); 
+					} );
 		}
 	],
 	volume:
@@ -355,7 +355,7 @@ var stateReqMap =
 						value: mute.Value == 'on',
 						timeOfSample: new Date( Date.parse( mute.Time ) ),
 						uncertaintyInMilliseconds: 1000
-					} );			
+					} );
 		}
 	],
 	contact:
@@ -395,7 +395,7 @@ var stateReqMap =
 	window:
 	[
 		{ state: true },
-		( dev, res ) => 
+		( dev, res ) =>
 		{
 			let reading = dev.Readings.state;
 			if ( !reading ) return;
@@ -406,7 +406,7 @@ var stateReqMap =
 						value: reading.Value == "closed" ? "LOCKED" : "UNLOCKED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
 						uncertaintyInMilliseconds: 1000
-					} ); 
+					} );
 		}
 	]
 };
@@ -486,12 +486,12 @@ function handleStateRequest( request, headerName, setCmd, patch )
 	{
 		let dev  = cookie[cap];      // device name
 		let todo = stateReqMap[cap]; // [ required readings, handler ]
-		
+
 		if ( askFor[dev] )
 			askFor[dev].push( todo[1] );
 		else
 			askFor[dev] = [ todo[1] ];
-		
+
 		Object.assign( readings, todo[0] );
 	}
 	request.fhemReq( (setCmd||'')
@@ -513,7 +513,7 @@ function handleStateRequest( request, headerName, setCmd, patch )
 				if ( patch )
 					patch( context );
 				request.respond( context );
-			} );				
+			} );
 }
 
 /**
@@ -572,8 +572,8 @@ function adjustVolume( request )
 	request._response.header.namespace = 'Alexa';
 	handleStateRequest( request, 'Response',
 	                    'set ' + dev
-	                      + ' volume {( ReadingsVal($DEV,"volume",0) + ' 
-	                      + target + ' )};' 
+	                      + ' volume {( ReadingsVal($DEV,"volume",0) + '
+	                      + target + ' )};'
 	                  );
 }
 
@@ -587,12 +587,12 @@ function setColor( request )
 		throw ( 'no color device in cookies' );
 	let target = request.event.directive.payload.color;
 	request._response.header.namespace = 'Alexa';
-	handleStateRequest( request, 
+	handleStateRequest( request,
 						'Response',
-	                    'set ' + dev + ' hsv ' + Math.round( target.hue ) + ',' 
-								+ Math.round( target.saturation * 100 ) + ',' 
+	                    'set ' + dev + ' hsv ' + Math.round( target.hue ) + ','
+								+ Math.round( target.saturation * 100 ) + ','
 								+ Math.round( target.brightness * 100 ) + ';',
-						( context ) => { for ( let prop of context.properties ) 
+						( context ) => { for ( let prop of context.properties )
 	                                        if ( prop.name == 'color' )
 											{
 												prop.value = target;
@@ -611,10 +611,10 @@ function setBrightness( request )
 		throw ( 'no bri device in cookies' );
 	let target = request.event.directive.payload.brightness;
 	request._response.header.namespace = 'Alexa';
-	handleStateRequest( request, 
+	handleStateRequest( request,
 						'Response',
 	                    'set ' + dev + ' dim ' + target + ';',
-						( context ) => { for ( let prop of context.properties ) 
+						( context ) => { for ( let prop of context.properties )
 	                                        if ( prop.name == 'brightness' )
 											{
 												prop.value = target;
@@ -635,11 +635,11 @@ function setTemperature( request )
 	request._response.header.namespace = 'Alexa';
 	if ( !target || target.scale != 'CELSIUS' )
 		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE",
-		                              "Currently only ° celsius is supported" );
-	handleStateRequest( request, 
+		                              "Currently only Â° celsius is supported" );
+	handleStateRequest( request,
 						'Response',
 	                    'set ' + dev + ' desiredTemperature ' + target.value + ';',
-						( context ) => { for ( let prop of context.properties ) 
+						( context ) => { for ( let prop of context.properties )
 	                                        if ( prop.name == 'targetSetpoint' )
 											{
 												prop.value.value = target.value;
@@ -660,13 +660,13 @@ function setDeltaTemperature( request )
 	request._response.header.namespace = 'Alexa';
 	if ( !target || target.scale != 'CELSIUS' )
 		return request.errorResponse( "TEMPERATURE_VALUE_OUT_OF_RANGE",
-		                              "Currently only ° celsius is supported" );
-	handleStateRequest( request, 
+		                              "Currently only Â° celsius is supported" );
+	handleStateRequest( request,
 						'Response',
 						'set ' + dev
 						  + " desiredTemperature {(ReadingsVal($DEV,'desiredTemperature','18')+ "
 						  + target.value + ')};',
-						( context ) => { for ( let prop of context.properties ) 
+						( context ) => { for ( let prop of context.properties )
 	                                        if ( prop.name == 'targetSetpoint' )
 											{
 												prop.value.value += target.value;
@@ -711,7 +711,7 @@ function setHeaterMode( request )
 				                 		handleStateRequest( request, 'Response' );
 				                 	},
 				                 	2000 );
-	                 	
+
 	                 } );
 }
 
@@ -773,14 +773,14 @@ exports.handler = ( event, context, callback ) => {
 				}
 				return request.errorResponse( 'INVALID_DIRECTIVE',
 				                              'unsupported in ThermostatController' );
-				
+
 			case 'Alexa.LockController':
 				request._response.header.namespace = 'Alexa';
 				return handleStateRequest( request, 'Response' );
 
 			default:
-				return request.errorResponse( 'INVALID_DIRECTIVE', 
-				                              'Not supported: ' + event.directive.header.namespace 
+				return request.errorResponse( 'INVALID_DIRECTIVE',
+				                              'Not supported: ' + event.directive.header.namespace
 											  + '::' + event.directive.header.name );
 		}
 	} catch (err)
