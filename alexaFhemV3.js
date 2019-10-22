@@ -186,6 +186,30 @@ var capabilitiesMap =
 			retrievable: true
 		}
 	},
+	contact:
+	{
+		type: "AlexaInterface",
+		interface: "Alexa.ContactSensor",
+		version: "3",
+		properties:
+		{
+			"supported": [ { name: "detectionState" } ],
+			proactivelyReported: false,
+			retrievable: true
+		}
+	},
+	motion:
+	{
+		type: "AlexaInterface",
+		interface: "Alexa.MotionSensor",
+		version: "3",
+		properties:
+		{
+			"supported": [ { name: "detectionState" } ],
+			proactivelyReported: true,
+			retrievable: true
+		}
+	},
 	window:
 	{
 		type: "AlexaInterface",
@@ -332,6 +356,40 @@ var stateReqMap =
 						timeOfSample: new Date( Date.parse( mute.Time ) ),
 						uncertaintyInMilliseconds: 1000
 					} );			
+		}
+	],
+	contact:
+	[
+		{ state: true },
+		( dev, res ) =>
+		{
+			let reading = dev.Readings.state;
+			if ( !reading ) return;
+			res.push(
+					{
+						namespace: "Alexa.ContactSensor",
+						name: "detectionState",
+						value: reading.Value == "closed" ? "DETECTED" : "NOT_DETECTED",
+						timeOfSample: new Date( Date.parse( reading.Time ) ),
+						uncertaintyInMilliseconds: 1000
+					} );
+		}
+	],
+	motion:
+	[
+		{ state: true },
+		( dev, res ) =>
+		{
+			let reading = dev.Readings.state;
+			if ( !reading ) return;
+			res.push(
+					{
+						namespace: "Alexa.MotionSensor",
+						name: "detectionState",
+						value: reading.Value == "on" ? "DETECTED" : "NOT_DETECTED",
+						timeOfSample: new Date( Date.parse( reading.Time ) ),
+						uncertaintyInMilliseconds: 1000
+					} );
 		}
 	],
 	window:
