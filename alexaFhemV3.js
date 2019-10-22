@@ -390,7 +390,14 @@ function handleDiscovery( request )
 					}
 					for ( let cap of dev.Attributes.EchoCap.split(' ') )
 					{
-						devSpec.cookie[cap] = dev.Name;
+						let devName = dev.Name;
+						let colon = cap.indexOf( ':' );
+						if ( colon > 0 )
+						{
+							devName = cap.substr( colon + 1 );
+							cap = cap.substr( 0, colon );
+						}
+						devSpec.cookie[cap] = devName;
 						if ( !category && capCategoryMap[cap] )
 							category = capCategoryMap[cap];
 
