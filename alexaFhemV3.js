@@ -96,13 +96,14 @@ function Request( event, callback )
 
 var capCategoryMap =
 {
-	heating: 'THERMOSTAT',
-	temp:    'THERMOSTAT',
-	window:  'SMARTLOCK',
-	power:   'SWITCH',
-	color:   'LIGHT',
-	bri:     'LIGHT',
-	volume:  'SPEAKER'
+	heating:  'THERMOSTAT',
+	temp:     'THERMOSTAT',
+	window:   'SMARTLOCK',
+	power:    'SWITCH',
+	color:    'LIGHT',
+	bri:      'LIGHT',
+	volume:   'SPEAKER',
+	playback: 'TV'
 };
 var capabilitiesMap =
 {
@@ -185,6 +186,13 @@ var capabilitiesMap =
 			proactivelyReported: false,
 			retrievable: true
 		}
+	},
+	playback:
+	{
+		type: "AlexaInterface",
+		interface: "Alexa.PlaybackController",
+		version: "3",
+		supportedOperations: [ "Play", "Pause", "Stop", "FastForward", "Next", "Previous", "Rewind" ]
 	},
 	contact:
 	{
@@ -358,6 +366,11 @@ var stateReqMap =
 					} );
 		}
 	],
+	playback:
+	[
+		{ STATE: true },
+		( dev, res ) => { /* dev.Internals.STATE; */ }
+	],
 	contact:
 	[
 		{ state: true },
@@ -527,6 +540,20 @@ function setPowerState( request )
 	let target = request.event.directive.header.name == 'TurnOn' ? 'on' : 'off';
 	request._response.header.namespace = 'Alexa';
 	handleStateRequest( request, 'Response', 'set ' + dev + ' ' + target + ';' );
+}
+
+/**
+ * Alexa.PlaybackController::*
+ */
+function setPlayback( request )
+{
+	let dev = request.event.directive.endpoint.cookie.playback;
+	if ( !dev )
+		throw ( 'no playback device in cookies' );
+	let target = request.event.directive.header.name;
+	request._response.header.namespace = 'Alexa';
+	handleStateRequest( request, 'Response',
+	                    'set ' + dev + ' ' + target + ';' );
 }
 
 /**
@@ -773,6 +800,9 @@ exports.handler = ( event, context, callback ) => {
 				}
 				return request.errorResponse( 'INVALID_DIRECTIVE',
 				                              'unsupported in ThermostatController' );
+
+			case 'Alexa.PlaybackController':
+				return setPlayback( request );
 
 			case 'Alexa.LockController':
 				request._response.header.namespace = 'Alexa';
