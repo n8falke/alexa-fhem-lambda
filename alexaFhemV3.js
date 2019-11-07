@@ -5,6 +5,7 @@ const FHEM_HOST = process.env.FHEM_HOST;
 const FHEM_PORT = process.env.FHEM_PORT || 443;
 const FHEM_USER = process.env.FHEM_USER || 'alexa';
 const FHEM_PASS = process.env.FHEM_PASS;
+const defaultUncertainty = 100; // ms
 
 // ------------------------------------------------- connection to home
 
@@ -247,7 +248,7 @@ var stateReqMap =
 						name: "powerState",
 						value: reading.STATE == "off" ? "OFF" : "ON",
 						timeOfSample: new Date(),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -270,7 +271,7 @@ var stateReqMap =
 								brightness: readings.brightness.Value / 100
 							},
 							timeOfSample: new Date( Date.parse( readings.hue.Time ) ),
-							uncertaintyInMilliseconds: 1000
+							uncertaintyInMilliseconds: defaultUncertainty
 						} );
 		}
 	],
@@ -287,7 +288,7 @@ var stateReqMap =
 						name: "brightness",
 						value: reading.Value,
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -307,7 +308,7 @@ var stateReqMap =
 							name: "thermostatMode",
 							value: 'OFF',
 							timeOfSample: new Date( Date.parse( tempReading.Time ) ),
-							uncertaintyInMilliseconds: 1000
+							uncertaintyInMilliseconds: defaultUncertainty
 						} );
 			res.push(
 					{
@@ -315,14 +316,14 @@ var stateReqMap =
 						name: "targetSetpoint",
 						value: { value: parseFloat(temp), scale: "CELSIUS" },
 						timeOfSample: new Date( Date.parse( tempReading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					},
 					{
 						namespace: "Alexa.ThermostatController",
 						name: "thermostatMode",
 						value: ({ manual: "HEAT", auto: "AUTO" })[ dev.Readings.mode.Value ],
 						timeOfSample: new Date( Date.parse( dev.Readings.mode.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -339,7 +340,7 @@ var stateReqMap =
 						name: "temperature",
 						value: { value: parseFloat(reading.Value), scale: "CELSIUS" },
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -356,13 +357,13 @@ var stateReqMap =
 						name: "volume",
 						value: parseFloat( volume.Value ),
 						timeOfSample: new Date( Date.parse( volume.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					}, {
 						namespace: "Alexa.Speaker",
 						name: "muted",
 						value: mute.Value == 'on',
 						timeOfSample: new Date( Date.parse( mute.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -382,9 +383,15 @@ var stateReqMap =
 					{
 						namespace: "Alexa.ContactSensor",
 						name: "detectionState",
-						value: reading.Value == "closed" ? "DETECTED" : "NOT_DETECTED",
+						value: reading.Value == "closed" ? "NOT_DETECTED" : "DETECTED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
+					}, { // contact sensor works only with EndpointHealth
+						namespace: "Alexa.EndpointHealth",
+						name: "connectivity",
+						value: { value: "OK" },
+						timeOfSample: new Date(),
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -401,7 +408,13 @@ var stateReqMap =
 						name: "detectionState",
 						value: reading.Value == "on" ? "DETECTED" : "NOT_DETECTED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
+					}, {
+						namespace: "Alexa.EndpointHealth",
+						name: "connectivity",
+						value: { value: "OK" },
+						timeOfSample: new Date(),
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	],
@@ -418,7 +431,7 @@ var stateReqMap =
 						name: "lockState",
 						value: reading.Value == "closed" ? "LOCKED" : "UNLOCKED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: 1000
+						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
 	]
@@ -527,6 +540,17 @@ function handleStateRequest( request, headerName, setCmd, patch )
 					patch( context );
 				request.respond( context );
 			} );
+}
+
+/**
+ * Alexa.Authorization::AcceptGrant
+ */
+function handleAuthRequest( request )
+{
+	console.log( request.event.directive.payload );
+	request.fhemReq( 'set alexaEventGateway code '
+	                 + request.event.directive.payload.grant.code,
+					 ( result ) => { request.send(); } );
 }
 
 /**
@@ -807,6 +831,9 @@ exports.handler = ( event, context, callback ) => {
 			case 'Alexa.LockController':
 				request._response.header.namespace = 'Alexa';
 				return handleStateRequest( request, 'Response' );
+
+			case 'Alexa.Authorization':
+				return handleAuthRequest( request );
 
 			default:
 				return request.errorResponse( 'INVALID_DIRECTIVE',

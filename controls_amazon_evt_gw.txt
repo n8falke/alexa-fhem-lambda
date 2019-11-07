@@ -1,0 +1,1 @@
+UPD 2019-11-07_20:19:44 11967 FHEM/39_amazonEventGateway.pm
