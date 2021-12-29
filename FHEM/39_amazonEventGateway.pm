@@ -58,18 +58,23 @@ sub amazonEventGateway_sendEvent
 {
   my ( $hash, $event ) = @_;
 
+  my $name = $hash->{NAME};
+  $event->{event}{endpoint}{scope}{token} =
+      ReadingsVal($name, 'accessToken', undef)
+    or return $hash->{STATE} = 'Please peform auth binding';
+
   $hash->{STATE} = 'sending event';
+  my $postData = encode_json($event);
+  Log3($name, 4, "Sending $postData");
+
   HttpUtils_NonblockingGet(
       {
-        url => AttrVal($hash->{NAME}, 'gateway', 'https://api.eu.amazonalexa.com/v3/events'),
+        url => AttrVal($name, 'gateway', 'https://api.eu.amazonalexa.com/v3/events'),
         timeout => 10,
-        hash => $hash,
         header => { 'Content-Type' => 'application/json' },
-        data => encode_json( { event => $event, context => { properties => [] } } ),
+        data => $postData,
         callback => sub {
           my ($param, $err, $data) = @_;
-          my $hash = $param->{hash};
-          my $name = $hash->{NAME};
           if ($err)
           {
             Log3($name, 2, "sending event failed: $err");
@@ -78,21 +83,9 @@ sub amazonEventGateway_sendEvent
           }
           else
           {
+            Log3($name, 4, "Received $data");
             $hash->{STATE} = 'event sent';
-            if ( $data )
-            {
-              $hash->{RESPONSE} = $data;
-              my $json = eval { decode_json($data) };
-              if($@)
-              {
-                Log3($name, 2, "($name) - JSON error requesting token: $@");
-                return;
-              }
-            }
-            else
-            {
-              $hash->{RESPONSE} = 'OK';
-            }
+            $hash->{RESPONSE} = $data || 'OK';
             readingsBeginUpdate($hash);
             readingsBulkUpdate($hash, "state", $hash->{STATE});
             readingsEndUpdate($hash, 1);
@@ -108,70 +101,107 @@ sub amazonEventGateway_sendEvent
 ###################################
 sub amazonEventGateway_Set($@)
 {
-  my ($hash, $name, $cmd, $param, $reading, @a) = @_;
+  my ($hash, $name, $cmd, $device, $reading, @a) = @_;
 
   return 'no set command specified' if !$cmd;
-  return 'unexpected parameter' if @a && $cmd eq 'send';
 
   if ($cmd eq 'code')
   {
-    return 'Function used from lambda' if !$param;
-    Log3($name, 4, "Got oauth code: $param");
-    $hash->{CODE} = $param;
+    return 'Function used from lambda' if !$device;
+    Log3($name, 4, "Got oauth code: $device");
+    $hash->{CODE} = $device;
     # "refreshToken" can not be used any more
     readingsSingleUpdate($hash, "refreshToken", '', 0);
   }
 
   if ($cmd eq 'send')
   {
-    return "set $name send <device> <reading>"
-      if !$param || !$reading;
+    return 'unexpected parameter' if @a;
+    return "set $name send <device> [<reading>]"
+      if !$device;
 
-    my $token = ReadingsVal($name, 'accessToken', undef)
+    ReadingsVal($name, 'accessToken', undef)
       or return 'Please peform auth binding';
 
     # $parm = device name with change
-    my $endpoint = AttrVal($param, 'EchoWord', undef)
-      or return "$param has no attribute EchoWord";
+    my $endpoint = AttrVal($device, 'EchoWord', undef)
+      or return "$device has no attribute EchoWord";
     $endpoint =~ tr/a-zA-Z0-9/_/c;
 
-    my $value = ReadingsVal($param, $reading, undef);
-    return "reading $reading from $param not found"
+    my $capabilities = AttrVal($device, 'EchoCap', undef)
+      or return "$device has no attribute EchoCap";
+
+    $reading //= 'state';
+    my $value = ReadingsVal($device, $reading, undef);
+    return "reading $reading from $device not found"
       if !defined $value;
 
     my $tz = fhemTzOffset(0) / 3600;
-    my $timestamp = ReadingsTimestamp($param, $reading,'') . "+0$tz:00";
+    my $timestamp = ReadingsTimestamp($device, $reading,'') . "+0$tz:00";
     substr($timestamp, 10, 1, 'T');
 
-    my %event = (
-      header => {
-        messageId => genUUID(),
-        namespace => 'Alexa',
-        name => 'ChangeReport',
-        payloadVersion => 3
-      },
-      endpoint => {
-        scope => {
-          type => 'BearerToken',
-          token => $token
-        },
-        endpointId => $endpoint,
-        cookie => { motion => $param },
-      },
-      payload => {
-        change => {
-          cause => { type => "PHYSICAL_INTERACTION" },
-          properties => [
-            {
-              namespace => 'Alexa.MotionSensor',
-              name => 'detectionState',
-              value => $value eq 'on' ? 'DETECTED' : 'NOT_DETECTED',
-              timeOfSample => $timestamp,
-              uncertaintyInMilliseconds => 10
-            }
-          ]
-        }
+    my $def;
+    if ( $reading eq 'state' ) {
+      if ( $capabilities =~ /motion/ ) {
+        $def = [ 'Alexa.MotionSensor', 'detectionState',
+                 { off => 'NOT_DETECTED' },
+                 'DETECTED'
+               ];
+      } elsif ( $capabilities =~ /contact/ ) {
+        $def = [ 'Alexa.ContactSensor', 'detectionState',
+                 { closed => 'NOT_DETECTED' },
+                 'DETECTED'
+               ];
+      } elsif ( $capabilities =~ /power/ ) {
+        $def = [ 'Alexa.PowerController', 'powerState',
+                 { off => 'OFF' },
+                 'ON'
+               ];
       }
+    }
+    $def or return "Unsupported cap.reading combination: $capabilities.$reading";
+
+    my @properties;
+    push @properties,
+        {
+          namespace => 'Alexa.EndpointHealth',
+          name => 'connectivity',
+          value => { value => 'OK' },
+          timeOfSample => $timestamp,
+          uncertaintyInMilliseconds => 0
+        } if $capabilities =~ /health|battery/;
+
+    my %event = (
+      event => {
+        header => {
+          messageId => genUUID(),
+          namespace => 'Alexa',
+          name => 'ChangeReport',
+          payloadVersion => "3"
+        },
+        endpoint => {
+          scope => {
+            type => 'BearerToken'
+          },
+          endpointId => $endpoint,
+          #cookie => { motion => $device },
+        },
+        payload => {
+          change => {
+            cause => { type => "PHYSICAL_INTERACTION" },
+            properties => [
+              {
+                namespace => $def->[0],
+                name => $def->[1],
+                value => ( $def->[2]{$value} // $def->[3] ),
+                timeOfSample => $timestamp,
+                uncertaintyInMilliseconds => 0
+              }
+            ]
+          }
+        }
+      },
+      context => { properties => \@properties }
     );
 
     # no waiting events and token valid?
@@ -209,6 +239,7 @@ sub amazonEventGateway_Set($@)
       $data{code} = $hash->{CODE}
           or return "Code for $name needs to be submitted by Auth-Request to lambda";
     }
+    Log3($name, 4, "token request: " . encode_json( \%data ) );
 
     $hash->{STATE} = 'getting token';
     HttpUtils_NonblockingGet(
@@ -229,14 +260,15 @@ sub amazonEventGateway_Set($@)
             }
             elsif ($data)
             {
-              $hash->{AUTH_RESPONSE} = 'OK';
               my $json = eval { decode_json($data) };
               if($@ || !$json->{access_token})
               {
+                $hash->{AUTH_RESPONSE} = $data;
                 $hash->{STATE} = 'token request failed';
-                Log3($name, 2, "($name) - JSON error requesting token: $@");
+                Log3($name, 2, "($name) - JSON error requesting token: $@ while parsing $data");
                 return;
               }
+              $hash->{AUTH_RESPONSE} = 'OK';
               $hash->{STATE} = 'token fetched';
               readingsBeginUpdate($hash);
               readingsBulkUpdate($hash, "accessToken", $json->{access_token});
@@ -254,7 +286,7 @@ sub amazonEventGateway_Set($@)
     return undef;
   }
 
-  return "Unknown argument $cmd, choose one of send code token";
+  return "Unknown argument $cmd, choose one of send token:noArg";
 }
 
 sub amazonEventGateway_Define($$)
@@ -303,7 +335,7 @@ sub amazonEventGateway_Define($$)
   <a name="amazonEventGatewayset"></a>
   <b>Set</b>
   <ul>
-    <li><code>set &lt;name&gt; refresh</code><br>
+    <li><code>set &lt;name&gt; token</code><br>
         Refresh auth token.</li>
     <li><code>set &lt;name&gt; send &lt;device&gt; &lt;reading&gt;</code><br>
         Send event for &lt;device&gt; with change in &lt;reading&gt; to gateway.</li>
@@ -361,9 +393,9 @@ sub amazonEventGateway_Define($$)
   <a name="amazonEventGatewayset"></a>
   <b>Set</b>
   <ul>
-    <li><code>set &lt;name&gt; refresh</code><br>
+    <li><code>set &lt;name&gt; token</code><br>
         Refresh auth token.</li>
-    <li><code>set &lt;name&gt; &lt;device&gt; &lt;reading&gt;</code><br>
+    <li><code>set &lt;name&gt; send &lt;device&gt; &lt;reading&gt;</code><br>
         Sende event für &lt;device&gt; with Änderungen im &lt;reading&gt; zum gateway.</li>
   </ul>
   <br>

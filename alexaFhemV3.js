@@ -31,7 +31,7 @@ function Request( event, callback )
 	{
 		console.log( this._response );
 		if ( context )
-			console.log( context );
+			console.log( context.properties ? context.properties : context );
 		this._callback( null, context ? { context, event: this._response }
 		                              : { event: this._response } );
 	};
@@ -116,7 +116,7 @@ var capabilitiesMap =
 		properties:
 		{
 			"supported": [ { name: "powerState" } ],
-			proactivelyReported: false,
+			proactivelyReported: true,
 			retrievable: true
 		}
 	},
@@ -195,6 +195,42 @@ var capabilitiesMap =
 		version: "3",
 		supportedOperations: [ "Play", "Pause", "Stop", "FastForward", "Next", "Previous", "Rewind" ]
 	},
+	channel:
+	{
+		type: "AlexaInterface",
+		interface: "Alexa.ChannelController",
+		version: "3",
+		properties:
+		{
+			supported: [ { name: "channel" } ],
+			proactivelyReported: false,
+			retrievable: false
+		}
+	},
+  health:
+  {
+    type: "AlexaInterface",
+    interface: "Alexa.EndpointHealth",
+    version: "3",
+    properties:
+    {
+      supported: [ { name: "connectivity" } ],
+      proactivelyReported: true,
+      retrievable: true
+    }
+  },
+  battery:
+  {
+    type: "AlexaInterface",
+    interface: "Alexa.EndpointHealth",
+    version: "3",
+    properties:
+    {
+      supported: [ { name: "connectivity" }, { name: "batery" } ],
+      proactivelyReported: true,
+      retrievable: true
+    }
+  },
 	contact:
 	{
 		type: "AlexaInterface",
@@ -203,7 +239,7 @@ var capabilitiesMap =
 		properties:
 		{
 			"supported": [ { name: "detectionState" } ],
-			proactivelyReported: false,
+			proactivelyReported: true,
 			retrievable: true
 		}
 	},
@@ -372,6 +408,58 @@ var stateReqMap =
 		{ STATE: true },
 		( dev, res ) => { /* dev.Internals.STATE; */ }
 	],
+	channel:
+	[
+		{ STATE: false },
+		( dev, res ) => { /* not yet; */ }
+	],
+  health:
+  [
+    { health: true },
+		( dev, res ) =>
+		{
+			let health = dev.Readings.health;
+			res.push(
+					{
+						namespace: "Alexa.EndpointHealth",
+						name: "connectivity",
+						value: { value: health?.Value ?? "OK" },
+						timeOfSample: health ? Date.parse( health.Time ) : new Date(),
+						uncertaintyInMilliseconds: defaultUncertainty
+					} );
+		}
+  ],
+  battery:
+  [
+    { health: true, batteryState: true, batteryPercent: true },
+		( dev, res ) =>
+		{
+			let battery = dev.Readings.batteryState;
+      if ( battery )
+      {
+        let value = { health: { state: battery.Value == 'ok' ? 'OK' : 'CRITICAL' } };
+        if ( dev.Readings.batteryPercent )
+          value.levelPercentage = dev.Readings.batteryPercent.Value;
+        res.push(
+            {
+              namespace: "Alexa.EndpointHealth",
+              name: "battery",
+              value,
+							timeOfSample: Date.parse( battery.Time ),
+							uncertaintyInMilliseconds: defaultUncertainty
+            } );
+      }
+			let health = dev.Readings.health;
+			res.push(
+					{
+						namespace: "Alexa.EndpointHealth",
+						name: "connectivity",
+						value: { value: health?.Value ?? "OK" },
+						timeOfSample: health ? Date.parse( health.Time ) : new Date(),
+						uncertaintyInMilliseconds: defaultUncertainty
+					} );
+		}
+  ],
 	contact:
 	[
 		{ state: true },
@@ -385,12 +473,6 @@ var stateReqMap =
 						name: "detectionState",
 						value: reading.Value == "closed" ? "NOT_DETECTED" : "DETECTED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: defaultUncertainty
-					}, { // contact sensor works only with EndpointHealth
-						namespace: "Alexa.EndpointHealth",
-						name: "connectivity",
-						value: { value: "OK" },
-						timeOfSample: new Date(),
 						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
@@ -408,12 +490,6 @@ var stateReqMap =
 						name: "detectionState",
 						value: reading.Value == "on" ? "DETECTED" : "NOT_DETECTED",
 						timeOfSample: new Date( Date.parse( reading.Time ) ),
-						uncertaintyInMilliseconds: defaultUncertainty
-					}, {
-						namespace: "Alexa.EndpointHealth",
-						name: "connectivity",
-						value: { value: "OK" },
-						timeOfSample: new Date(),
 						uncertaintyInMilliseconds: defaultUncertainty
 					} );
 		}
@@ -458,7 +534,7 @@ function handleDiscovery( request )
 				{
 					let friendlyName = dev.Attributes.EchoWord;
 					let devSpec = defRef[friendlyName];
-					let category = dev.Attributes.Echocat;
+					let category = dev.Attributes.EchoCat;
 					if ( !devSpec )
 					{
 						devSpec = defRef[friendlyName] =
@@ -468,7 +544,14 @@ function handleDiscovery( request )
 							description: dev.Attributes.EchoDesc || friendlyName,
 							manufacturerName: 'FHEM generic',
 							cookie: {},
-							capabilities: [],
+							capabilities:
+              [
+                {
+                  "type": "AlexaInterface",
+                  "interface": "Alexa",
+                  "version": "3"
+                }
+              ]
 						};
 						endpoints.push( devSpec );
 					}
@@ -578,6 +661,21 @@ function setPlayback( request )
 	request._response.header.namespace = 'Alexa';
 	handleStateRequest( request, 'Response',
 	                    'set ' + dev + ' ' + target + ';' );
+}
+
+/**
+ * Alexa.ChannelController::*
+ */
+function setChannel( request )
+{
+	let dev = request.event.directive.endpoint.cookie.channel;
+	if ( !dev )
+		throw ( 'no channel device in cookies' );
+	let target = request.event.directive.payload.channel.number
+	             || request.event.directive.payload.channelMetadata.name;
+	request._response.header.namespace = 'Alexa';
+	handleStateRequest( request, 'Response',
+	                    'set ' + dev + ' channel ' + target + ';' );
 }
 
 /**
@@ -827,6 +925,9 @@ exports.handler = ( event, context, callback ) => {
 
 			case 'Alexa.PlaybackController':
 				return setPlayback( request );
+
+			case 'Alexa.ChannelController':
+				return setChannel( request );
 
 			case 'Alexa.LockController':
 				request._response.header.namespace = 'Alexa';
