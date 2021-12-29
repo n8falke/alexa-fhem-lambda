@@ -85,6 +85,7 @@ optional (if you've changed things in the configuration):
 * FHEM_BASE = '/fhem/?XHR=1&cmd='
 * FHEM_PORT = 443
 * FHEM_USER = alexa
+* TZ = Europe/Amsterdam
 
 ### Test
 Test connectivity with:
